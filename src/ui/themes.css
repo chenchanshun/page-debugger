@@ -1,0 +1,36 @@
+:root, :root[data-theme="cloud"] {
+  color-scheme: light;
+  --bg: #f5f7fb; --surface: #fff; --surface-raised: #fff; --surface-muted: #f6f8fc;
+  --text: #28344b; --muted: #7a879d; --faint: #a0aaba; --border: #e5eaf2;
+  --accent: #4b6cdd; --accent-hover: #3b5cca; --accent-soft: #edf1ff; --on-accent: #fff;
+  --sidebar: #f9fafc; --sidebar-text: #47536b; --sidebar-muted: #8994a8; --sidebar-border: #e6eaf2;
+  --sidebar-hover: #eff2f8; --sidebar-active: #fff; --sidebar-active-border: #dde5fa;
+  --sidebar-shadow: 0 3px 12px #253c6910; --badge: #eaf0ff; --badge-text: #5573be;
+  --status-bg: #eef7f3; --status-border: #deeee6; --status-text: #438b71;
+  --code: #465a78; --overlay: #16223b55; --dialog-shadow: 0 24px 90px #18335422;
+  --hero: #edf2ff; --logo-start: #597bec; --logo-end: #4261c6;
+}
+:root[data-theme="graphite"] {
+  color-scheme: dark;
+  --bg: #181b22; --surface: #20242d; --surface-raised: #272c36; --surface-muted: #1b1f27;
+  --text: #e0e5f0; --muted: #9aa6ba; --faint: #707e96; --border: #303743;
+  --accent: #9daeff; --accent-hover: #b0bdff; --accent-soft: #323c59; --on-accent: #1c2440;
+  --sidebar: #151820; --sidebar-text: #b5c0d2; --sidebar-muted: #78879f; --sidebar-border: #2a303c;
+  --sidebar-hover: #232936; --sidebar-active: #293247; --sidebar-active-border: #3a4864;
+  --sidebar-shadow: 0 3px 12px #00000014; --badge: #354364; --badge-text: #c0cfff;
+  --status-bg: #1d302d; --status-border: #2a443c; --status-text: #8cc4ae;
+  --code: #b4c4df; --overlay: #080b1499; --dialog-shadow: 0 24px 90px #00000066;
+  --hero: #232c46; --logo-start: #53649c; --logo-end: #3d4e83;
+}
+:root[data-theme="pine"] {
+  color-scheme: light;
+  --bg: #f2f5f1; --surface: #fbfdf9; --surface-raised: #fff; --surface-muted: #f0f5ef;
+  --text: #2d433d; --muted: #7a8d83; --faint: #9dac9f; --border: #dfe8df;
+  --accent: #3f7d65; --accent-hover: #326b55; --accent-soft: #e4f0e6; --on-accent: #fff;
+  --sidebar: #eaf0e9; --sidebar-text: #4b6356; --sidebar-muted: #819586; --sidebar-border: #d8e3d8;
+  --sidebar-hover: #dfe9df; --sidebar-active: #f8fcf7; --sidebar-active-border: #cadfce;
+  --sidebar-shadow: 0 3px 12px #344b3310; --badge: #dcebdd; --badge-text: #52795e;
+  --status-bg: #e3eee2; --status-border: #d2e3d1; --status-text: #538160;
+  --code: #4c6d5e; --overlay: #1d332555; --dialog-shadow: 0 24px 90px #234f2c22;
+  --hero: #dfebde; --logo-start: #5a9475; --logo-end: #3c7258;
+}

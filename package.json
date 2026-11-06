@@ -1,0 +1,29 @@
+{
+  "name": "page-debugger",
+  "productName": "Page Debugger",
+  "version": "0.1.3",
+  "private": true,
+  "description": "A local browser workspace for CDP automation and persistent network inspection",
+  "main": "src/main.cjs",
+  "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
+    "start": "node scripts/launch.cjs",
+    "start:background": "node scripts/launch.cjs --hidden",
+    "status": "node scripts/client.cjs status",
+    "client": "node scripts/client.cjs",
+    "check": "node scripts/check.cjs",
+    "test": "node --test test/*.test.cjs",
+    "test:integration": "node scripts/integration.cjs",
+    "test:package": "node scripts/integration.cjs --packaged",
+    "test:close": "node scripts/test-close-tray.cjs",
+    "package:win": "node scripts/package.cjs",
+    "shortcut:desktop": "powershell.exe -NoProfile -File scripts/create-desktop-shortcut.ps1"
+  },
+  "dependencies": { "ws": "8.22.1" },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "45.2.2",
+    "playwright-core": "1.64.1"
+  },
+  "engines": { "node": ">=22.12" }
+}
