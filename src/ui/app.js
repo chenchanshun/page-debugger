@@ -15,38 +15,48 @@ function toast(message) {
 }
 function handle(callback) { return async event => { try { await callback(event); } catch (error) { toast(error.message); } }; }
 async function newTab() { await act('create-page', { profileId: selectedProfileId }); }
-function renderTabActions() {
-  const pages = state?.pages.filter(page => page.profileId === selectedProfileId) ?? [];
-  $('#close-other-tabs').disabled = closingTabs || pages.length < 2 || currentPage()?.profileId !== selectedProfileId;
-  $('#close-all-tabs').disabled = closingTabs || !pages.length;
-  $('.tab-actions').setAttribute('aria-busy', String(closingTabs));
-}
-async function closeTabs(keepCurrent) {
+async function closeTabs(profileId, keepPageId) {
   if (closingTabs) return;
-  const profileId = selectedProfileId;
-  const keepPageId = keepCurrent ? currentPage()?.id : undefined;
-  if (!profileId || (keepCurrent && (!keepPageId || currentPage().profileId !== profileId))) return;
-  closingTabs = true; renderTabActions();
+  closingTabs = true;
   try {
+    if (keepPageId) await act('select-page', { pageId: keepPageId });
     const result = await act('close-profile-pages', { profileId, keepPageId });
     render(await act('state'));
-    toast(keepCurrent ? `已关闭 ${result.closed} 个标签页，保留当前标签` : `已关闭当前环境的 ${result.closed} 个标签页`);
-  } finally { closingTabs = false; renderTabActions(); }
+    toast(keepPageId ? `已关闭 ${result.closed} 个标签页，保留此标签` : `已关闭当前环境的 ${result.closed} 个标签页`);
+  } finally { closingTabs = false; }
+}
+async function pageContextMenu(event, page) {
+  event.preventDefault(); event.stopPropagation();
+  const action = await act('context-menu', { kind: 'page', pageId: page.id });
+  if (action === 'close-page') await act('close-page', { pageId: page.id });
+  if (action === 'close-other-tabs') await closeTabs(page.profileId, page.id);
+  if (action === 'close-all-tabs') await closeTabs(page.profileId);
+}
+async function profileContextMenu(event, profile) {
+  event.preventDefault();
+  const action = await act('context-menu', { kind: 'profile', profileId: profile.id });
+  if (action !== 'close-profile') return;
+  await act('close-profile', { profileId: profile.id });
+  render(await act('state')); toast('环境已关闭，可在「＋」中重新打开');
 }
 function render(next) {
   state = next;
   const active = currentPage();
-  if (!selectedProfileId || !state.profiles.some(profile => profile.id === selectedProfileId)) selectedProfileId = active?.profileId ?? state.profiles[0]?.id;
+  const openProfiles = state.profiles.filter(profile => !profile.closed);
+  if (!selectedProfileId || !openProfiles.some(profile => profile.id === selectedProfileId)) selectedProfileId = active?.profileId ?? openProfiles[0]?.id;
   if (active && active.profileId !== selectedProfileId) selectedProfileId = active.profileId;
   const profile = state.profiles.find(item => item.id === selectedProfileId);
-  $('#profile-name').textContent = profile?.name ?? '工作区';
-  $('#profiles').replaceChildren(...state.profiles.map(item => {
+  $('#profile-name').textContent = profile?.name ?? '未打开环境';
+  $('#profiles').replaceChildren(...openProfiles.map(item => {
     const button = el('button', `profile-item ${item.id === selectedProfileId ? 'active' : ''}`);
     const copy = el('span', 'profile-copy');
     copy.append(el('span', 'profile-label', item.name), el('span', 'profile-description', '独立浏览会话'));
     button.append(el('span', 'profile-badge', item.name.slice(0, 1)), copy,
       el('span', 'profile-count', String(state.pages.filter(page => page.profileId === item.id).length)));
     button.title = item.name;
+    button.dataset.profileId = item.id;
+    button.setAttribute('aria-haspopup', 'menu');
+    button.oncontextmenu = handle(event => profileContextMenu(event, item));
     button.onclick = handle(async () => {
       selectedProfileId = item.id;
       const page = state.pages.find(page => page.profileId === item.id);
@@ -55,6 +65,8 @@ function render(next) {
   }));
   $('#tabs').replaceChildren(...state.pages.filter(page => page.profileId === selectedProfileId).map(page => {
     const tab = el('div', `tab ${page.active ? 'active' : ''}`); tab.role = 'tab'; tab.tabIndex = 0;
+    tab.dataset.pageId = page.id; tab.setAttribute('aria-haspopup', 'menu');
+    tab.oncontextmenu = handle(event => pageContextMenu(event, page));
     tab.setAttribute('aria-selected', String(page.active)); tab.title = page.url;
     tab.append(el('span', 'tab-icon', page.loading ? '◌' : '◇'), el('span', 'tab-title', page.title));
     const close = el('button', 'icon-button close-tab', '×'); close.title = '关闭标签页';
@@ -62,7 +74,6 @@ function render(next) {
     tab.append(close); tab.onclick = handle(() => act('select-page', { pageId: page.id }));
     tab.onkeydown = event => { if (event.key === 'Enter') tab.click(); }; return tab;
   }));
-  renderTabActions();
   if (document.activeElement !== $('#address')) $('#address').value = active?.url === 'about:blank' ? '' : active?.url ?? '';
   $('#back').disabled = !active?.canGoBack; $('#forward').disabled = !active?.canGoForward;
   $('#reload').disabled = !active; $('#inspect').disabled = !active;
@@ -86,9 +97,21 @@ for (const selector of ['#profile-dialog', '#records-dialog', '#console-dialog',
   $(selector).addEventListener('cancel', handle(async event => { event.preventDefault(); await closeDialog(selector); }));
 }
 $('#new-tab').onclick = handle(newTab); $('#empty-new-tab').onclick = handle(newTab);
-$('#close-other-tabs').onclick = handle(() => closeTabs(true));
-$('#close-all-tabs').onclick = handle(() => closeTabs(false));
-$('#add-profile').onclick = handle(async () => { await openDialog('#profile-dialog'); $('#profile-input').focus(); });
+$('#add-profile').onclick = handle(async () => {
+  render(await act('state'));
+  const closedProfiles = state.profiles.filter(profile => profile.closed);
+  $('#closed-profiles').hidden = !closedProfiles.length;
+  $('#closed-profile-select').replaceChildren(...closedProfiles.map(profile => {
+    const option = el('option', '', profile.name); option.value = profile.id; return option;
+  }));
+  await openDialog('#profile-dialog'); $('#profile-input').focus();
+});
+$('#reopen-profile').onclick = handle(async () => {
+  const profileId = $('#closed-profile-select').value;
+  if (!profileId) return;
+  await act('create-page', { profileId }); await closeDialog('#profile-dialog');
+  toast('环境已重新打开');
+});
 $('#cancel-profile').onclick = handle(() => closeDialog('#profile-dialog'));
 $('#profile-form').onsubmit = handle(async event => {
   event.preventDefault();

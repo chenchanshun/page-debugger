@@ -6,10 +6,12 @@ function setupCookieImport({ act, openDialog, closeDialog, currentPage, getState
   find('#import-cookies').onclick = async () => {
     try {
       const state = getState();
-      find('#cookie-profile').replaceChildren(...state.profiles.map(profile => {
+      const profiles = state.profiles.filter(profile => !profile.closed);
+      if (!profiles.length) throw new Error('请先打开浏览环境');
+      find('#cookie-profile').replaceChildren(...profiles.map(profile => {
         const option = document.createElement('option'); option.value = profile.id; option.textContent = profile.name; return option;
       }));
-      find('#cookie-profile').value = currentPage()?.profileId ?? state.profiles[0].id;
+      find('#cookie-profile').value = currentPage()?.profileId ?? profiles[0].id;
       find('#cookie-result').textContent = '支持数组和 {"cookies":[...]}，单次最多 2,000 条 / 4 MiB。';
       await openDialog('#cookies-dialog'); find('#cookie-input').focus();
     } catch (error) { toast(error.message); }

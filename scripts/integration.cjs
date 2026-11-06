@@ -183,26 +183,40 @@ async function main() {
   await shellPage.locator('#close-cookies').click();
   check('Cookie dialog imports pasted arrays and selected JSON files into the chosen environment');
   check('workspace UI and capture viewer render, screenshot files saved');
+  // Native OS menus are outside CDP. Supply a menu choice while exercising the
+  // real renderer contextmenu event and host actions; templates are unit-tested.
+  await shellPage.evaluate(() => {
+    const originalAct = act;
+    act = async (action, input) => {
+      if (action !== 'context-menu') return originalAct(action, input);
+      window.integrationMenuRequest = input;
+      return window.integrationMenuChoice ?? null;
+    };
+  });
+  async function chooseContextMenu(locator, choice) {
+    await shellPage.evaluate(value => { window.integrationMenuChoice = value; }, choice);
+    await locator.dispatchEvent('contextmenu', { button: 2 });
+  }
+  assert.equal(await shellPage.locator('#close-other-tabs, #close-all-tabs').count(), 0);
   const cleanupProfile = await request('POST', '/v1/profiles', { name: '标签清理验收' });
   const cleanupTabs = [];
   for (let index = 0; index < 12; index++) cleanupTabs.push(await request('POST', '/v1/pages', { profileId: cleanupProfile.id }));
-  const keptTab = cleanupTabs.at(-1);
+  const keptTab = cleanupTabs[2];
   await shellPage.waitForFunction(() => document.querySelectorAll('#tabs .tab').length === 12);
-  const cleanupBounds = await shellPage.locator('.tab-actions').boundingBox();
-  const tabRowBounds = await shellPage.locator('.tabs-row').boundingBox();
-  assert.ok(cleanupBounds.x >= tabRowBounds.x && cleanupBounds.x + cleanupBounds.width <= tabRowBounds.x + tabRowBounds.width);
   const cleanupImage = await request('GET', '/v1/window/screenshot');
-  await fs.writeFile(path.join(directory, 'tab-actions.png'), Buffer.from(cleanupImage.data, 'base64'));
-  await shellPage.locator('#close-other-tabs').click();
+  await fs.writeFile(path.join(directory, 'tab-context-workspace.png'), Buffer.from(cleanupImage.data, 'base64'));
+  await chooseContextMenu(shellPage.locator(`[data-page-id="${keptTab.id}"]`), null);
+  assert.equal((await request('GET', '/v1/status')).activePageId, cleanupTabs.at(-1).id);
+  await chooseContextMenu(shellPage.locator(`[data-page-id="${keptTab.id}"]`), 'close-other-tabs');
   await waitUntil(async () => (await request('GET', '/v1/pages')).filter(item => item.profileId === cleanupProfile.id).length === 1, 'close other tabs');
-  await shellPage.waitForFunction(() => document.querySelector('#close-other-tabs').disabled && !document.querySelector('#close-all-tabs').disabled);
+  await shellPage.waitForFunction(() => document.querySelectorAll('#tabs .tab').length === 1);
   assert.equal((await request('GET', '/v1/status')).activePageId, keptTab.id);
   assert.equal((await request('GET', `/v1/pages/${page.id}`)).targetId, page.targetId);
   await request('POST', '/v1/pages', { profileId: cleanupProfile.id });
-  await shellPage.waitForFunction(() => !document.querySelector('#close-other-tabs').disabled);
-  await shellPage.locator('#close-all-tabs').click();
+  await shellPage.waitForFunction(() => document.querySelectorAll('#tabs .tab').length === 2);
+  await chooseContextMenu(shellPage.locator(`[data-page-id="${keptTab.id}"]`), 'close-all-tabs');
   await waitUntil(async () => !(await request('GET', '/v1/pages')).some(item => item.profileId === cleanupProfile.id), 'close all tabs in environment');
-  await shellPage.waitForFunction(() => document.querySelector('#close-all-tabs').disabled && document.querySelector('#close-other-tabs').disabled);
+  await shellPage.waitForFunction(() => document.querySelectorAll('#tabs .tab').length === 0);
   assert.equal((await request('GET', '/v1/status')).activePageId, null);
   assert.equal(await shellPage.locator('#profile-name').textContent(), cleanupProfile.name);
   assert.equal(await shellPage.locator('#address').inputValue(), '');
@@ -211,10 +225,26 @@ async function main() {
   assert.ok(!persistedCleanup.tabs.some(item => item.profileId === cleanupProfile.id));
   assert.equal((await request('GET', `/v1/pages/${isolated.id}`)).targetId, isolated.targetId);
   await shellPage.locator('#empty-new-tab').click();
-  await waitUntil(async () => (await request('GET', '/v1/pages')).some(item => item.profileId === cleanupProfile.id), 'new tab after cleanup');
-  await shellPage.waitForFunction(() => document.querySelectorAll('#tabs .tab').length === 1 && !document.querySelector('#close-all-tabs').disabled);
+  await waitUntil(async () => (await request('GET', '/v1/pages')).some(item => item.profileId === cleanupProfile.id && item.capture === 'recording'), 'new tab after cleanup');
+  await shellPage.waitForFunction(() => document.querySelectorAll('#tabs .tab').length === 1);
+  const temporaryTab = (await request('GET', '/v1/pages')).find(item => item.profileId === cleanupProfile.id);
+  await request('POST', `/v1/pages/${temporaryTab.id}/cdp`, { method: 'Network.setCookie', params: { name: 'reopen_session', value: 'synthetic-preserved', url: fixtureUrl, expires: Date.now() / 1000 + 86400 } });
   await request('POST', `/v1/pages/${page.id}/select`);
-  check('fixed tab cleanup buttons survive overflow; keep current, clear environment, persist removal and create again without touching other environments');
+  await chooseContextMenu(shellPage.locator(`[data-profile-id="${cleanupProfile.id}"]`), 'close-profile');
+  await waitUntil(async () => (await request('GET', '/v1/profiles')).find(item => item.id === cleanupProfile.id)?.closed, 'close background environment');
+  await shellPage.waitForFunction(id => !document.querySelector(`[data-profile-id="${id}"]`), cleanupProfile.id);
+  assert.equal((await request('GET', '/v1/status')).activePageId, page.id);
+  await shellPage.locator('#add-profile').click();
+  await shellPage.locator('#closed-profile-select').selectOption(cleanupProfile.id);
+  await shellPage.locator('#reopen-profile').click();
+  await waitUntil(async () => (await request('GET', '/v1/pages')).some(item => item.profileId === cleanupProfile.id && item.capture === 'recording'), 'reopen environment from dialog');
+  const reopenedTab = (await request('GET', '/v1/pages')).find(item => item.profileId === cleanupProfile.id);
+  const reopenedCookies = (await request('POST', `/v1/pages/${reopenedTab.id}/cdp`, { method: 'Network.getAllCookies' })).cookies;
+  assert.ok(reopenedCookies.some(item => item.name === 'reopen_session' && item.value === 'synthetic-preserved'));
+  await chooseContextMenu(shellPage.locator(`[data-profile-id="${cleanupProfile.id}"]`), 'close-profile');
+  await waitUntil(async () => (await request('GET', '/v1/profiles')).find(item => item.id === cleanupProfile.id)?.closed, 'close active environment');
+  await request('POST', `/v1/pages/${page.id}/select`);
+  check('context-menu actions preserve the clicked tab, clear only its environment, close and reopen environments with login data intact (native selection stubbed)');
   await browser.close(); browser = null;
   await request('POST', `/v1/pages/${page.id}/evaluate`, { expression: 'fetch("/api/agents?disconnected=1").then(r=>r.json())' });
   await waitUntil(async () => (await request('GET', `/v1/records?pageId=${page.id}&kind=network`)).some(record => record.url.includes('disconnected=1') && record.state === 'finished'), 'record while detached');
@@ -232,6 +262,8 @@ async function main() {
   const firstRun = (await request('GET', '/v1/status')).capture.runId;
   await stop(); await launch();
   status = await request('GET', '/v1/status'); assert.ok(status.pages.some(item => item.id === page.id));
+  assert.equal(status.profiles.find(item => item.id === cleanupProfile.id).closed, true);
+  assert.ok(!status.pages.some(item => item.profileId === cleanupProfile.id));
   browser = await chromium.connectOverCDP(connection.cdpEndpoint);
   const restoredShell = browser.contexts().flatMap(context => context.pages()).find(item => item.url().includes('/ui/index.html'));
   assert.equal(await restoredShell.evaluate(() => document.documentElement.dataset.theme), 'pine');
@@ -247,6 +279,23 @@ async function main() {
   const archive = await request('GET', `/v1/captures/${firstRun}/records?pageId=${page.id}&kind=network`);
   assert.ok(archive.some(record => record.url.includes('/api/agents') && record.body?.text));
   check('restart restores page IDs and persistent login; previous capture archive remains readable');
+  browser = await chromium.connectOverCDP(connection.cdpEndpoint);
+  const finalShell = browser.contexts().flatMap(context => context.pages()).find(item => item.url().includes('/ui/index.html'));
+  for (const profile of status.profiles.filter(item => !item.closed)) {
+    const result = await finalShell.evaluate(profileId => window.debugWorkspace.action('close-profile', { profileId }), profile.id);
+    assert.equal(result.ok, true);
+  }
+  assert.equal((await request('GET', '/v1/pages')).length, 0);
+  await browser.close(); browser = null;
+  await stop(); await launch();
+  assert.equal((await request('GET', '/v1/pages')).length, 0);
+  browser = await chromium.connectOverCDP(connection.cdpEndpoint);
+  const emptyShell = browser.contexts().flatMap(context => context.pages()).find(item => item.url().includes('/ui/index.html'));
+  await emptyShell.waitForFunction(() => document.querySelectorAll('#profiles .profile-item').length === 0);
+  await emptyShell.locator('#empty-new-tab').click();
+  await waitUntil(async () => (await request('GET', '/v1/pages')).length === 1, 'new tab reopens an environment after all closed');
+  await browser.close(); browser = null;
+  check('all environments can close, remain closed after restart, and reopen via new tab');
   await stop(); child = null;
   await fs.writeFile(path.join(directory, 'summary.json'), JSON.stringify({ ok: true, checks, artifacts: directory }, null, 2));
   await fs.writeFile(path.join(directory, 'electron.log'), output.join(''));

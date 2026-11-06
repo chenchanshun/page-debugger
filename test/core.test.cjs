@@ -27,6 +27,21 @@ test('持久化操作并发时仍保存最后的完整工作区，损坏配置�
   await assert.rejects(new Workspace(directory).load(), /原文件已保留/);
   assert.equal(await fs.readFile(workspace.filename, 'utf8'), '{broken');
 });
+test('关闭环境保留身份和配置，状态持久化且可以重新打开', async t => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'page-debugger-profile-'));
+  t.after(() => fs.rm(directory, { recursive: true, force: true }));
+  const workspace = new Workspace(directory); await workspace.load();
+  const profile = await workspace.createProfile({ name: '可重新打开的环境' });
+  await workspace.setProfileClosed(profile.id, true);
+  const restored = new Workspace(directory); await restored.load();
+  assert.equal(restored.getProfile(profile.id).closed, true);
+  assert.equal(restored.getProfile(profile.id).name, profile.name);
+  await restored.setProfileClosed(profile.id, false);
+  assert.equal(restored.getProfile(profile.id).closed, false);
+  assert.equal(restored.state.profiles.length, 2);
+  await assert.rejects(restored.setProfileClosed('missing', true), /不存在/);
+});
+
 test('记录淘汰会同步清理磁盘，完成后的响应更新不会丢失，并可读取历史运行', async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'page-debugger-captures-'));
   const store = new CaptureStore(directory, { maxRecords: 2 }); await store.initialize();

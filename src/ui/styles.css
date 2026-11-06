@@ -40,9 +40,9 @@ main{ position:absolute;inset:0 0 0 232px;display:flex;flex-direction:column}
 .text-button:hover{ background:var(--accent-soft)}
 .tabs-row{ height:40px;min-height:40px;display:flex;align-items:center;gap:5px;padding:5px 16px 0;border-bottom:1px solid var(--border)}
 .tabs{ display:flex;gap:4px;min-width:0;overflow:auto;height:35px;scrollbar-width:none}
-.tab-actions{ display:flex;align-items:center;gap:4px;margin-left:auto;padding-left:8px;border-left:1px solid var(--border);flex-shrink:0}
-.tab-action{ background:transparent;color:var(--muted);font-size:11px;white-space:nowrap;padding:6px 9px;border-radius:6px}
-.tab-action:hover:not(:disabled){ background:var(--accent-soft);color:var(--accent)}
+#closed-profiles{ margin-top:20px;padding-top:16px;border-top:1px solid var(--border)}
+.reopen-profile-row{ display:flex;gap:10px}
+.reopen-profile-row select{ min-width:0;flex:1}
 .tab{ min-width:110px;max-width:210px;display:flex;align-items:center;gap:8px;border-radius:8px 8px 0 0;padding:0 8px 0 12px;color:var(--muted);cursor:pointer;font-size:11px;flex-shrink:0}
 .tab.active{ background:var(--surface);color:var(--text);border:1px solid var(--border);border-bottom-color:var(--surface)}
 .tab .tab-title{ max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

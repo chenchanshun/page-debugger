@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, clipboard, shell, session } = require('electron');
+const { app, BrowserWindow, ipcMain, clipboard, shell, session, Menu } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
@@ -10,6 +10,7 @@ const { PageManager } = require('./pages.cjs');
 const { createApi } = require('./api.cjs');
 const { CookieImporter } = require('./cookie-importer.cjs');
 const { createWindowTray, showWindow } = require('./window-tray.cjs');
+const { showContextMenu } = require('./context-menu.cjs');
 
 app.setName('PageDebugger');
 const dataDirectory = process.env.PAGE_DEBUGGER_DATA_DIR || path.join(app.getPath('appData'), 'PageDebugger');
@@ -102,6 +103,8 @@ function installIpc() {
 }
 async function uiAction(action, input) {
   if (action === 'state') return host.state();
+  if (action === 'context-menu') return showContextMenu(Menu, host.window, input, host.state());
+  if (action === 'close-profile') return host.pages.closeProfile(input.profileId);
   if (action === 'create-profile') { const profile = await host.workspace.createProfile(input); notify(); return profile; }
   if (action === 'import-cookies') return host.cookieImporter.import(input.profileId, input.cookies);
   if (action === 'create-page') return host.pages.create({ profileId: input.profileId, url: input.url });

@@ -6,6 +6,7 @@ class PageManager {
   constructor(window, workspace, store, cdpEndpoint, notify) {
     Object.assign(this, { window, workspace, store, cdpEndpoint, notify });
     this.pages = new Map(); this.overlay = false; this.stopping = false;
+    this.closingProfiles = new Set();
   }
   get(pageId) {
     const page = this.pages.get(pageId);
@@ -32,15 +33,20 @@ class PageManager {
     const saved = [...this.workspace.state.tabs]; const active = this.workspace.state.activePageId;
     this.workspace.state.tabs = [];
     for (const tab of saved) {
+      if (this.workspace.state.profiles.find(profile => profile.id === tab.profileId)?.closed) continue;
       try { await this.create({ ...tab, activate: false }); }
       catch (error) { this.store.upsert('event', tab.id, { id: id('event'), startedAt: new Date().toISOString(), type: 'restore-failed', message: error.message }); }
     }
-    if (!this.pages.size) await this.create({ profileId: this.workspace.state.profiles[0].id, activate: false });
-    await this.select(this.pages.has(active) ? active : this.pages.keys().next().value);
+    const openProfile = this.workspace.state.profiles.find(profile => !profile.closed);
+    if (!this.pages.size && openProfile) await this.create({ profileId: openProfile.id, activate: false });
+    if (this.pages.size) await this.select(this.pages.has(active) ? active : this.pages.keys().next().value);
+    else { this.workspace.state.activePageId = null; await this.workspace.save(); this.notify(); }
   }
   async create(input = {}) {
-    const profile = this.workspace.getProfile(input.profileId ?? this.workspace.state.profiles[0].id);
+    const profile = this.workspace.getProfile(input.profileId ?? (this.workspace.state.profiles.find(item => !item.closed) ?? this.workspace.state.profiles[0]).id);
     const url = normalizeUrl(input.url); const pageId = input.id ?? id('page');
+    if (this.closingProfiles.has(profile.id)) throw httpError(409, '环境正在关闭，请稍后重试');
+    if (profile.closed) await this.workspace.setProfileClosed(profile.id, false);
     const partition = `persist:${profile.id}`;
     const profileSession = session.fromPartition(partition);
     profileSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -131,6 +137,17 @@ class PageManager {
       await this.close(page.id, { stayInProfile: true }); closed++;
     }
     return { closed };
+  }
+  async closeProfile(profileId) {
+    this.workspace.getProfile(profileId);
+    if (this.closingProfiles.has(profileId)) throw httpError(409, '环境正在关闭，请稍后重试');
+    this.closingProfiles.add(profileId);
+    try {
+      const result = await this.closeProfilePages({ profileId });
+      await this.workspace.setProfileClosed(profileId, true);
+      if (!this.workspace.state.activePageId && this.pages.size) await this.select(this.pages.keys().next().value);
+      this.notify(); return result;
+    } finally { this.closingProfiles.delete(profileId); }
   }
   async close(pageId, { stayInProfile = false } = {}) {
     const page = this.get(pageId); page.closing = true; await page.recorder.stop();

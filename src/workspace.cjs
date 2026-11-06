@@ -29,5 +29,9 @@ class Workspace {
     const profile = this.state.profiles.find(item => item.id === profileId);
     if (!profile) throw httpError(404, '环境不存在'); return profile;
   }
+  async setProfileClosed(profileId, closed) {
+    const profile = this.getProfile(profileId);
+    profile.closed = Boolean(closed); await this.save(); return profile;
+  }
 }
 module.exports = { Workspace };
