@@ -3,12 +3,13 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
 const { randomBytes } = require('node:crypto');
-const { availablePort, atomicJson, httpError } = require('./utils.cjs');
+const { availablePort, atomicJson, httpError, id } = require('./utils.cjs');
 const { Workspace } = require('./workspace.cjs');
 const { CaptureStore } = require('./capture-store.cjs');
 const { PageManager } = require('./pages.cjs');
 const { createApi } = require('./api.cjs');
 const { CookieImporter } = require('./cookie-importer.cjs');
+const { CookieExporter, serializeCookies } = require('./cookie-exporter.cjs');
 const { createWindowTray, showWindow } = require('./window-tray.cjs');
 const { showContextMenu } = require('./context-menu.cjs');
 
@@ -60,6 +61,8 @@ async function boot() {
   host.cookieImporter = new CookieImporter({ validateProfile: profileId => workspace.getProfile(profileId),
     getConnection: profileId => host.pages.cookieConnection(profileId),
     flushCookies: profileId => session.fromPartition(`persist:${profileId}`).cookies.flushStore() });
+  host.cookieExporter = new CookieExporter({ validateProfile: profileId => workspace.getProfile(profileId),
+    getConnection: profileId => host.pages.cookieConnection(profileId) });
   const api = createApi(host, token);
   await new Promise((resolve, reject) => { api.once('error', reject); api.listen(Number(process.env.PAGE_DEBUGGER_API_PORT) || 0, '127.0.0.1', resolve); });
   host.api = api; host.apiEndpoint = `http://127.0.0.1:${api.address().port}`;
@@ -107,6 +110,18 @@ async function uiAction(action, input) {
   if (action === 'close-profile') return host.pages.closeProfile(input.profileId);
   if (action === 'create-profile') { const profile = await host.workspace.createProfile(input); notify(); return profile; }
   if (action === 'import-cookies') return host.cookieImporter.import(input.profileId, input.cookies);
+  if (action === 'export-cookies') {
+    if (!['preview', 'clipboard', 'file'].includes(input.destination ?? 'preview')) throw httpError(400, '未知导出方式');
+    const cookies = await host.cookieExporter.export(input.profileId, { url: input.url });
+    let filename = null;
+    if (input.destination === 'clipboard') clipboard.writeText(serializeCookies(cookies));
+    if (input.destination === 'file') {
+      const directory = path.join(dataDirectory, 'exports'); await fs.mkdir(directory, { recursive: true });
+      filename = path.join(directory, `${id('cookies')}.json`);
+      await fs.writeFile(filename, serializeCookies(cookies), { encoding: 'utf8', flag: 'wx' });
+    }
+    return { cookies, filename, count: cookies.length };
+  }
   if (action === 'create-page') return host.pages.create({ profileId: input.profileId, url: input.url });
   if (action === 'select-page') return host.pages.select(input.pageId);
   if (action === 'close-page') return host.pages.close(input.pageId);

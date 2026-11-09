@@ -31,6 +31,7 @@ function createApi(host, token) {
       else if (method === 'GET' && url.pathname === '/v1/profiles') result = host.workspace.state.profiles;
       else if (method === 'POST' && url.pathname === '/v1/profiles') { result = await host.workspace.createProfile(body); host.notify(); }
       else if (method === 'POST' && /^\/v1\/profiles\/[\w-]+\/cookies\/import$/.test(url.pathname)) result = await host.cookieImporter.import(url.pathname.split('/')[3], body.cookies);
+      else if (method === 'GET' && /^\/v1\/profiles\/[\w-]+\/cookies\/export$/.test(url.pathname)) result = await host.cookieExporter.export(url.pathname.split('/')[3], { url: query.url });
       else if (method === 'GET' && url.pathname === '/v1/pages') result = host.pages.list();
       else if (method === 'POST' && url.pathname === '/v1/pages') result = await host.pages.create({ profileId: body.profileId, url: body.url, activate: body.activate });
       else if (method === 'GET' && url.pathname === '/v1/records') result = host.store.list({ ...query, includeBodies: query.includeBodies === 'true' });

@@ -93,7 +93,7 @@ async function openDialog(selector) {
   await act('overlay', { visible: true }); $(selector).showModal();
 }
 async function closeDialog(selector) { $(selector).close(); await act('overlay', { visible: false }); }
-for (const selector of ['#profile-dialog', '#records-dialog', '#console-dialog', '#cookies-dialog']) {
+for (const selector of ['#profile-dialog', '#records-dialog', '#console-dialog', '#cookies-dialog', '#cookie-export-dialog']) {
   $(selector).addEventListener('cancel', handle(async event => { event.preventDefault(); await closeDialog(selector); }));
 }
 $('#new-tab').onclick = handle(newTab); $('#empty-new-tab').onclick = handle(newTab);
@@ -173,6 +173,7 @@ $('#run-code').onclick = handle(async () => {
   finally { $('#run-code').disabled = false; }
 });
 setupCookieImport({ act, openDialog, closeDialog, currentPage, getState: () => state, toast });
+setupCookieExport({ act, openDialog, closeDialog, currentPage, getState: () => state, toast });
 window.pageDebuggerTheme.setup();
 api.onState(render);
 void act('state').then(render).catch(error => toast(error.message));

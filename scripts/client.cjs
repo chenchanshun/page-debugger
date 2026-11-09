@@ -29,6 +29,14 @@ async function main() {
     result = await request('POST', `/v1/profiles/${args[0]}/cookies/import`, { cookies });
   }
   else if (command === 'open') result = await request('POST', '/v1/pages', { url: args[0], ...(args[1] ? { profileId: args[1] } : {}) });
+  else if (command === 'export-cookies') {
+    if (!args[0] || !args[1]) throw new Error('用法：export-cookies <profileId> <JSON 文件路径> [网站网址]');
+    const query = args[2] ? `?${new URLSearchParams({ url: args[2] })}` : '';
+    const cookies = await request('GET', `/v1/profiles/${args[0]}/cookies/export${query}`);
+    const { serializeCookies } = require('../src/cookie-exporter.cjs');
+    await fs.writeFile(args[1], serializeCookies(cookies), { encoding: 'utf8', flag: 'wx' });
+    result = { filename: path.resolve(args[1]), count: cookies.length };
+  }
   else if (command === 'navigate') result = await request('POST', `/v1/pages/${args[0]}/navigate`, { url: args[1] });
   else if (command === 'eval') result = await request('POST', `/v1/pages/${args[0]}/evaluate`, { expression: args.slice(1).join(' ') });
   else if (command === 'records') result = await request('GET', `/v1/records?${new URLSearchParams({ ...(args[0] ? { pageId: args[0] } : {}), ...(args[1] ? { search: args[1] } : {}) })}`);
@@ -36,7 +44,7 @@ async function main() {
   else if (command === 'captures') result = await request('GET', '/v1/captures');
   else if (['show', 'hide'].includes(command)) result = await request('POST', '/v1/window', { action: command });
   else if (command === 'quit') result = await request('POST', '/v1/quit', {});
-  else throw new Error('命令：status | pages | profiles | profile <名称> | import-cookies <profileId> <JSON文件路径> | open <url> [profileId] | navigate <pageId> <url> | eval <pageId> <代码> | records [pageId] [筛选] | record <id> | captures | show | hide | quit');
+  else throw new Error('命令：status | pages | profiles | profile <名称> | import-cookies <profileId> <JSON文件路径> | export-cookies <profileId> <JSON文件路径> [网站网址] | open <url> [profileId] | navigate <pageId> <url> | eval <pageId> <代码> | records [pageId] [筛选] | record <id> | captures | show | hide | quit');
   console.log(JSON.stringify(result, null, 2));
 }
 if (require.main === module) main().catch(error => { console.error(error.code === 'ENOENT' ? '客户端未启动，或找不到 connection.json。请先运行 npm start。' : error.message); process.exitCode = 1; });

@@ -66,6 +66,20 @@ CLI 也可导入，路径可以带空格：
 npm run client -- import-cookies <profileId> "D:\private\cookies.json"
 ```
 
+## 导出 Cookie
+
+左下角点击「导出 Cookie」，选择浏览环境和「当前网站 / 整个环境」，可预览并「复制 JSON」或「保存 JSON」。当前网站按页面域名筛选，包含该主机适用的父域 Cookie 和所有路径；整个环境导出该环境全部域名的 Cookie，环境之间独立。已关闭的环境需要先重新打开。
+
+输出为裸 JSON 数组，字段为 `domain`、`hostOnly`、`httpOnly`、`name`、`path`、`sameSite`、`secure`、`session`、`storeId`、`value`。持久 Cookie 额外包含 Unix 秒格式的 `expirationDate`（保留小数），会话 Cookie 不包含该字段。`sameSite` 输出 `strict` / `lax` / `no_restriction`，未指定时为 `null`；`storeId` 固定为 `null`。分区 Cookie 额外保留 `partitionKey`，opaque 分区保留 `partitionKeyOpaque` 标记，不降级成普通 Cookie。
+
+保存的 JSON 文件位于用户数据目录的 `exports/`，界面会显示完整路径，可从「打开数据目录」进入。导出的 JSON 可用于已有 Cookie 导入功能；值保持原样，导出内容不写入采集记录，也不会刷新网页。
+
+CLI 导出到指定文件（不会覆盖已有文件；省略网址时导出整个环境），终端只显示路径和数量：
+
+```powershell
+npm run client -- export-cookies <profileId> "D:\private\cookies.json" "https://console.example.com/"
+```
+
 ## 连接发现
 
 运行中的连接描述文件：
@@ -156,6 +170,7 @@ CDP 的 `/json/list` 也包含客户端自身的本地 UI 页面。只操作 `/v
 | `GET /v1/profiles` | 环境列表 |
 | `POST /v1/profiles` | `{name}` 创建环境 |
 | `POST /v1/profiles/:id/cookies/import` | `{cookies:<数组、包含 cookies 的对象或 JSON 字符串>}`，返回逐项结果和成功/过期/失败计数 |
+| `GET /v1/profiles/:id/cookies/export` | 返回扩展格式 Cookie 数组；可选 `?url=<HTTP/HTTPS 网址>` 按主机筛选，省略则导出整个环境 |
 | `GET /v1/pages` | 页面及当前 target 映射 |
 | `POST /v1/pages` | `{profileId?,url?,activate?}` 创建标签，不显示或聚焦桌面窗口 |
 | `GET /v1/pages/:id` | 页面状态 |
@@ -222,6 +237,7 @@ src/capture-store.cjs    有界记录和本地持久化
 src/workspace.cjs        环境与标签持久化
 src/cookie-format.cjs    Cookie 格式归一与属性校验
 src/cookie-importer.cjs  环境内 Cookie 写入和逐项结果
+src/cookie-exporter.cjs  扩展格式 Cookie 导出与域名筛选
 src/api.cjs              本地控制接口
 src/ui/                 桌面界面
 scripts/client.cjs       本机 CLI / Node API helper
