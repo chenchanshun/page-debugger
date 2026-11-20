@@ -80,10 +80,11 @@ async function main() {
   try { await targetSession.send('Target.closeTarget', { targetId: externallyClosed.targetId }); }
   finally { await targetSession.detach(); }
   await waitUntil(async () => !(await request('GET', '/v1/pages')).some(item => item.id === externallyClosed.id), 'native target destruction cleanup');
-  await waitUntil(async () => {
-    const state = JSON.parse(await fs.readFile(path.join(directory, 'workspace.json'), 'utf8'));
-    return !state.tabs.some(item => item.id === externallyClosed.id);
-  }, 'destroyed target removed from persisted tabs');
+  // Wait for queued workspace writes through the API before reading the file.
+  // Polling it during an atomic rename can hold a Windows file lock.
+  await request('POST', `/v1/pages/${page.id}/select`);
+  const afterNativeClose = JSON.parse(await fs.readFile(path.join(directory, 'workspace.json'), 'utf8'));
+  assert.ok(!afterNativeClose.tabs.some(item => item.id === externallyClosed.id));
   assert.ok((await request('GET', '/v1/status')).pages.some(item => item.id === page.id));
   check('native target destruction removes stale tabs without breaking state refresh or other pages');
   const browserPage = await waitUntil(async () => {
