@@ -2,6 +2,14 @@ const { WebContentsView, session } = require('electron');
 const { PageRecorder } = require('./recorder.cjs');
 const { id, normalizeUrl, httpError, boundedText } = require('./utils.cjs');
 
+// Electron can clear view.webContents when the native contents is destroyed.
+// Keep the original wrapper and check its lifetime before using any native API.
+function liveContents(page) {
+  const contents = page?.contents ?? page?.view?.webContents;
+  return contents && !contents.isDestroyed() ? contents : null;
+}
+function isLive(page) { return Boolean(page && !page.closing && liveContents(page)); }
+
 class PageManager {
   constructor(window, workspace, store, cdpEndpoint, notify) {
     Object.assign(this, { window, workspace, store, cdpEndpoint, notify });
@@ -10,11 +18,12 @@ class PageManager {
   }
   get(pageId) {
     const page = this.pages.get(pageId);
-    if (!page || page.closing || page.view.webContents.isDestroyed()) throw httpError(404, '页面已关闭或不存在');
+    if (!isLive(page)) throw httpError(404, '页面已关闭或不存在');
     return page;
   }
   describe(page) {
-    const contents = page.view.webContents;
+    const contents = liveContents(page);
+    if (!contents || page.closing) throw httpError(404, '页面已关闭或不存在');
     return { id: page.id, profileId: page.profileId, targetId: page.targetId, url: contents.getURL() || page.url,
       title: page.title || '新标签页', loading: contents.isLoading(), canGoBack: contents.navigationHistory.canGoBack(),
       canGoForward: contents.navigationHistory.canGoForward(), error: page.error, capture: page.recorder?.status ?? 'connecting',
@@ -22,9 +31,9 @@ class PageManager {
       active: this.workspace.state.activePageId === page.id,
       webSocketDebuggerUrl: page.targetId ? `ws://127.0.0.1:${new URL(this.cdpEndpoint).port}/devtools/page/${page.targetId}` : null };
   }
-  list() { return [...this.pages.values()].filter(page => !page.closing && !page.view.webContents.isDestroyed()).map(page => this.describe(page)); }
+  list() { return [...this.pages.values()].filter(isLive).map(page => this.describe(page)); }
   async cookieConnection(profileId) {
-    let page = [...this.pages.values()].find(item => item.profileId === profileId && !item.closing && !item.view.webContents.isDestroyed());
+    let page = [...this.pages.values()].find(item => item.profileId === profileId && isLive(item));
     if (!page) { const created = await this.create({ profileId, activate: false }); page = this.get(created.id); }
     if (page.recorder.status !== 'recording') throw httpError(503, '此环境的调试连接尚未就绪，请稍后重试');
     return page.recorder.cdp;
@@ -56,24 +65,33 @@ class PageManager {
       backgroundThrottling: false, webSecurity: true, spellcheck: false
     } });
     view.setBackgroundColor('#ffffff'); view.setVisible(false); this.window.contentView.addChildView(view);
-    const page = { id: pageId, profileId: profile.id, view, url, title: '新标签页', error: null, closing: false };
+    const page = { id: pageId, profileId: profile.id, view, contents: view.webContents, url, title: '新标签页', error: null, closing: false };
     this.pages.set(pageId, page);
     this.installHandlers(page);
     page.recorder = new PageRecorder(page, this.store, this.cdpEndpoint, this.notify);
     try {
-      await view.webContents.loadURL('about:blank');
+      await page.contents.loadURL('about:blank');
       await page.recorder.start();
+      this.get(pageId);
       this.workspace.state.tabs.push({ id: pageId, profileId: profile.id, url }); await this.workspace.save();
       if (input.activate !== false) await this.select(pageId);
       // Recording is attached before navigation; creation returns without waiting for a slow website.
       this.load(page, url); this.notify(); return this.describe(page);
     } catch (error) {
-      await page.recorder.stop(); this.pages.delete(pageId); view.webContents.close({ waitForBeforeUnload: false }); throw error;
+      if (this.pages.has(pageId) && !page.closing) await this.close(pageId);
+      throw error;
     }
   }
   installHandlers(page) {
-    const contents = page.view.webContents;
-    const update = () => { if (!this.stopping && !contents.isDestroyed()) this.notify(); };
+    const contents = page.contents;
+    const update = () => { if (!this.stopping && isLive(page)) this.notify(); };
+    contents.once('destroyed', () => {
+      if (this.stopping || page.closing || this.pages.get(page.id) !== page) return;
+      void this.close(page.id).catch(error => {
+        this.store.upsert('event', page.id, { id: id('event'), startedAt: new Date().toISOString(), type: 'page-close-failed', message: error.message });
+        this.notify();
+      });
+    });
     contents.on('page-title-updated', (_event, title) => { page.title = title; update(); });
     contents.on('did-start-loading', update); contents.on('did-stop-loading', update);
     contents.on('did-navigate', (_event, url) => this.rememberUrl(page, url));
@@ -110,6 +128,7 @@ class PageManager {
     if (this.window.isDestroyed()) return;
     const [width, height] = this.window.getContentSize();
     for (const page of this.pages.values()) {
+      if (!isLive(page)) continue;
       const visible = !this.overlay && this.workspace.state.activePageId === page.id && page.url !== 'about:blank';
       page.view.setBounds({ x: 232, y: 138, width: Math.max(1, width - 232), height: Math.max(1, height - 178) });
       page.view.setVisible(visible);
@@ -150,11 +169,14 @@ class PageManager {
     } finally { this.closingProfiles.delete(profileId); }
   }
   async close(pageId, { stayInProfile = false } = {}) {
-    const page = this.get(pageId); page.closing = true; await page.recorder.stop();
-    this.window.contentView.removeChildView(page.view); page.view.webContents.close({ waitForBeforeUnload: false }); this.pages.delete(pageId);
+    const page = this.pages.get(pageId);
+    if (!page || page.closing) throw httpError(404, '页面已关闭或不存在');
+    page.closing = true; await page.recorder.stop();
+    if (!this.window.isDestroyed()) this.window.contentView.removeChildView(page.view);
+    liveContents(page)?.close({ waitForBeforeUnload: false }); this.pages.delete(pageId);
     this.workspace.state.tabs = this.workspace.state.tabs.filter(tab => tab.id !== pageId);
     if (this.workspace.state.activePageId === pageId) {
-      const remaining = [...this.pages.values()].filter(item => !item.closing && !item.view.webContents.isDestroyed());
+      const remaining = [...this.pages.values()].filter(isLive);
       this.workspace.state.activePageId = (remaining.find(item => item.profileId === page.profileId) ?? (stayInProfile ? null : remaining[0]))?.id ?? null;
     }
     await this.workspace.save(); this.layout(); this.notify();
@@ -182,7 +204,7 @@ class PageManager {
     this.stopping = true;
     await Promise.allSettled([...this.pages.values()].map(page => page.recorder.stop()));
     await this.workspace.save(); await this.store.flush();
-    for (const page of this.pages.values()) if (!page.view.webContents.isDestroyed()) page.view.webContents.close({ waitForBeforeUnload: false });
+    for (const page of this.pages.values()) liveContents(page)?.close({ waitForBeforeUnload: false });
     this.pages.clear();
   }
 }

@@ -75,6 +75,17 @@ async function main() {
   const profileId = status.profiles[0].id;
   const page = await request('POST', '/v1/pages', { profileId, url: fixtureUrl });
   browser = await chromium.connectOverCDP(connection.cdpEndpoint);
+  const externallyClosed = await request('POST', '/v1/pages', { profileId, activate: false });
+  const targetSession = await browser.newBrowserCDPSession();
+  try { await targetSession.send('Target.closeTarget', { targetId: externallyClosed.targetId }); }
+  finally { await targetSession.detach(); }
+  await waitUntil(async () => !(await request('GET', '/v1/pages')).some(item => item.id === externallyClosed.id), 'native target destruction cleanup');
+  await waitUntil(async () => {
+    const state = JSON.parse(await fs.readFile(path.join(directory, 'workspace.json'), 'utf8'));
+    return !state.tabs.some(item => item.id === externallyClosed.id);
+  }, 'destroyed target removed from persisted tabs');
+  assert.ok((await request('GET', '/v1/status')).pages.some(item => item.id === page.id));
+  check('native target destruction removes stale tabs without breaking state refresh or other pages');
   const browserPage = await waitUntil(async () => {
     for (const context of browser.contexts()) for (const item of context.pages()) {
       if (item.url().startsWith(fixtureUrl) && (await item.title()) === 'Debug fixture') return item;

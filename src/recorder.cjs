@@ -9,7 +9,8 @@ class PageRecorder {
     this.status = 'connecting'; this.lastError = null; this.stopped = false; this.reconnectTimer = null; this.cdp = null;
   }
   async start() {
-    const contents = this.page.view.webContents;
+    const contents = this.page.contents ?? this.page.view.webContents;
+    if (!contents || contents.isDestroyed() || this.stopped) return;
     if (typeof contents.getOrCreateDevToolsTargetId === 'function') this.page.targetId = contents.getOrCreateDevToolsTargetId();
     else {
       const attached = contents.debugger.isAttached();
